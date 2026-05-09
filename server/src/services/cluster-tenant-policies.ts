@@ -9,12 +9,18 @@ export interface UpsertTenantPolicyInput {
   quota: TenantPolicy["quota"];
   limitRange: TenantPolicy["limitRange"];
   additionalAllowFqdns: string[];
+  /**
+   * Egress HTTP proxy URL for the tenant. When omitted (undefined), any existing
+   * value is preserved on upsert; pass `null` explicitly to clear it.
+   */
+  httpProxyUrl?: string | null;
   imageOverrides: Record<string, string> | null;
 }
 
 export interface TenantPolicyRow extends TenantPolicy {
   clusterConnectionId: string;
   companyId: string;
+  httpProxyUrl: string | null;
 }
 
 export interface ClusterTenantPoliciesService {
@@ -34,11 +40,16 @@ export function clusterTenantPoliciesService(db: Db): ClusterTenantPoliciesServi
 
     async upsert(input) {
       const existing = await this.get(input.clusterConnectionId, input.companyId);
+      // Preserve httpProxyUrl when the caller didn't explicitly pass one (undefined).
+      // An explicit `null` clears it; an explicit string overwrites it.
+      const httpProxyUrl =
+        input.httpProxyUrl === undefined ? (existing?.httpProxyUrl ?? null) : input.httpProxyUrl;
+
       if (existing) {
         const [updated] = await db.update(clusterTenantPolicies).set({
           quotaJson: input.quota,
           limitRangeJson: input.limitRange,
-          networkJson: { additionalAllowFqdns: input.additionalAllowFqdns, httpProxyUrl: null },
+          networkJson: { additionalAllowFqdns: input.additionalAllowFqdns, httpProxyUrl },
           imageOverridesJson: input.imageOverrides,
           updatedAt: new Date(),
         }).where(and(
@@ -52,7 +63,7 @@ export function clusterTenantPoliciesService(db: Db): ClusterTenantPoliciesServi
         companyId: input.companyId,
         quotaJson: input.quota,
         limitRangeJson: input.limitRange,
-        networkJson: { additionalAllowFqdns: input.additionalAllowFqdns, httpProxyUrl: null },
+        networkJson: { additionalAllowFqdns: input.additionalAllowFqdns, httpProxyUrl },
         imageOverridesJson: input.imageOverrides,
       }).returning();
       return mapRow(created);
@@ -67,6 +78,7 @@ function mapRow(r: typeof clusterTenantPolicies.$inferSelect): TenantPolicyRow {
     quota: r.quotaJson ?? null,
     limitRange: r.limitRangeJson ?? null,
     additionalAllowFqdns: r.networkJson?.additionalAllowFqdns ?? [],
+    httpProxyUrl: r.networkJson?.httpProxyUrl ?? null,
     imageOverrides: r.imageOverridesJson ?? null,
   };
 }

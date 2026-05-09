@@ -6,6 +6,8 @@ import {
   RbacAuthorizationV1Api,
   ApiextensionsV1Api,
 } from "@kubernetes/client-node";
+import { Agent, request as httpsRequest, type RequestOptions as HttpsRequestOptions } from "node:https";
+import { URL } from "node:url";
 import type { ResolvedClusterConnection, KubernetesApiClient } from "./types.js";
 
 export function createKubernetesApiClient(connection: ResolvedClusterConnection): KubernetesApiClient {
@@ -48,6 +50,42 @@ export function createKubernetesApiClient(connection: ResolvedClusterConnection)
 
   const ctx = kc.getCurrentContext();
 
+  // Build an https.Agent once per client carrying the kubeconfig's TLS material
+  // (CA bundle + optional client cert/key). This is required for kind/EKS-style
+  // kubeconfigs that authenticate via mTLS rather than a bearer token.
+  // @kubernetes/client-node@0.21 exposes `applyHTTPSOptions`, which writes
+  // ca/cert/key/rejectUnauthorized onto a plain object; we hand that object to
+  // https.Agent. Lazily materialised so in-cluster paths without TLS material
+  // still work.
+  type HttpsOpts = {
+    ca?: Buffer | string;
+    cert?: Buffer | string;
+    key?: Buffer | string;
+    rejectUnauthorized?: boolean;
+  };
+  let httpsAgent: Agent | null | undefined;
+  function getHttpsAgent(): Agent | null {
+    if (httpsAgent !== undefined) return httpsAgent;
+    const kcAny = kc as unknown as { applyHTTPSOptions?: (opts: HttpsOpts) => void };
+    if (typeof kcAny.applyHTTPSOptions !== "function") {
+      httpsAgent = null;
+      return null;
+    }
+    const opts: HttpsOpts = {};
+    kcAny.applyHTTPSOptions(opts);
+    if (opts.ca || opts.cert || opts.key || opts.rejectUnauthorized === false) {
+      httpsAgent = new Agent({
+        ca: opts.ca,
+        cert: opts.cert,
+        key: opts.key,
+        rejectUnauthorized: opts.rejectUnauthorized !== false,
+      });
+    } else {
+      httpsAgent = null;
+    }
+    return httpsAgent;
+  }
+
   return {
     core,
     batch,
@@ -58,42 +96,60 @@ export function createKubernetesApiClient(connection: ResolvedClusterConnection)
     async request<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
       const cluster = kc.getCurrentCluster();
       if (!cluster) throw new Error(`No current cluster in kubeconfig`);
-      const url = new URL(path, cluster.server).toString();
+      const url = new URL(path, cluster.server);
 
-      // Build fetch options with kubeconfig auth applied.
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         Accept: "application/json",
       };
-      const init: RequestInit = {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+      const payload = body !== undefined ? JSON.stringify(body) : undefined;
+      if (payload !== undefined) {
+        headers["Content-Length"] = Buffer.byteLength(payload).toString();
+      }
+
+      // Authorization header: for token-based and exec-credential users, the SDK
+      // exposes `applyAuthorizationHeader` which writes Authorization onto a plain
+      // headers object. For cert-based users it's a no-op — the auth is the mTLS
+      // handshake itself, not a header — and the https.Agent above carries the
+      // cert/key.
+      const kcAny = kc as unknown as {
+        applyAuthorizationHeader?: (opts: { headers: Record<string, string> }) => Promise<void>;
       };
-
-      // applyToFetchOptions injects auth headers and TLS material on supported kc versions.
-      // @kubernetes/client-node v0.21+ exposes applyToFetchOptions.
-      // We try it first and fall back to direct bearer-token injection if not present.
-      type ApplyFn = (opts: RequestInit) => Promise<void>;
-      const applyToFetchOptions = (kc as unknown as { applyToFetchOptions?: ApplyFn }).applyToFetchOptions;
-      if (typeof applyToFetchOptions === "function") {
-        await applyToFetchOptions.call(kc, init);
+      if (typeof kcAny.applyAuthorizationHeader === "function") {
+        await kcAny.applyAuthorizationHeader({ headers });
       } else {
-        // Best-effort fallback: inject bearer token from current user.
         const user = kc.getCurrentUser();
-        if (user?.token) {
-          headers["Authorization"] = `Bearer ${user.token}`;
-        }
+        if (user?.token) headers["Authorization"] = `Bearer ${user.token}`;
       }
 
-      const res = await fetch(url, init);
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`k8s API ${method} ${path} failed ${res.status}: ${text}`);
+      const agent = getHttpsAgent();
+      const options: HttpsRequestOptions = {
+        method,
+        hostname: url.hostname,
+        port: url.port || (url.protocol === "https:" ? 443 : 80),
+        path: `${url.pathname}${url.search}`,
+        headers,
+      };
+      if (agent) options.agent = agent;
+
+      const incoming = await new Promise<import("node:http").IncomingMessage>((resolve, reject) => {
+        const req = httpsRequest(options, (res) => resolve(res));
+        req.once("error", reject);
+        if (payload !== undefined) req.write(payload);
+        req.end();
+      });
+
+      const status = incoming.statusCode ?? 0;
+      const chunks: Buffer[] = [];
+      for await (const chunk of incoming) {
+        chunks.push(chunk as Buffer);
       }
-      // 204 No Content has no body.
-      if (res.status === 204) return undefined as T;
-      return (await res.json()) as T;
+      const text = Buffer.concat(chunks).toString("utf-8");
+      if (status < 200 || status >= 300) {
+        throw new Error(`k8s API ${method} ${path} failed ${status}: ${text}`);
+      }
+      if (status === 204 || text.length === 0) return undefined as T;
+      return JSON.parse(text) as T;
     },
   };
 }

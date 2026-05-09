@@ -72,10 +72,34 @@ export async function applyDriverRoleBinding(client: KubernetesApiClient, rb: V1
   const ns = rb.metadata!.namespace!;
   const name = rb.metadata!.name!;
   try {
-    await client.rbac.readNamespacedRoleBinding(name, ns);
-    // RoleBindings have an immutable roleRef. Safe path is delete+create.
+    const existing = await client.rbac.readNamespacedRoleBinding(name, ns);
+    const sameRoleRef =
+      existing.body.roleRef?.kind === rb.roleRef.kind &&
+      existing.body.roleRef?.name === rb.roleRef.name &&
+      existing.body.roleRef?.apiGroup === rb.roleRef.apiGroup;
+    if (sameRoleRef) {
+      // Idempotent path: roleRef hasn't changed (the common case for ensureTenant
+      // re-runs). RoleBinding subjects are mutable, so we patch in place — no
+      // delete window, no race where the namespace briefly has no permissions.
+      await client.rbac.patchNamespacedRoleBinding(name, ns, rb, undefined, undefined, undefined, undefined, undefined, {
+        headers: { "Content-Type": "application/strategic-merge-patch+json" },
+      } as never);
+      return;
+    }
+    // roleRef differs — k8s makes roleRef immutable, so we must delete+create.
+    // This is the rare path (only fires when an admin renames the bound ClusterRole).
+    // If the recreate fails, surface a descriptive error pointing at recovery so
+    // the operator knows the tenant has no driver permissions until ensureTenant re-runs.
     await client.rbac.deleteNamespacedRoleBinding(name, ns);
-    await client.rbac.createNamespacedRoleBinding(ns, rb);
+    try {
+      await client.rbac.createNamespacedRoleBinding(ns, rb);
+    } catch (createErr) {
+      throw new Error(
+        `RoleBinding ${name} in ${ns} was deleted to change roleRef, but the recreate failed: ` +
+          `${(createErr as Error).message}. ` +
+          `The tenant namespace currently has NO driver RoleBinding — re-run ensureTenant to recover.`,
+      );
+    }
   } catch (err) {
     if ((err as { response?: { statusCode?: number } })?.response?.statusCode === 404) {
       await client.rbac.createNamespacedRoleBinding(ns, rb);

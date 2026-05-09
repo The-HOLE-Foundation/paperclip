@@ -72,4 +72,33 @@ describe("clusterTenantPoliciesService", () => {
     expect(fetched?.additionalAllowFqdns).toEqual(["api.acme.io", "*.linear.app"]);
     expect(fetched?.limitRange?.default?.cpu).toBe("2");
   });
+
+  it("upsert() preserves httpProxyUrl when the caller doesn't pass one", async () => {
+    const svc = clusterTenantPoliciesService(db);
+    // Set a proxy URL via an explicit upsert.
+    await svc.upsert({
+      clusterConnectionId: clusterId, companyId,
+      quota: null, limitRange: null,
+      additionalAllowFqdns: [], imageOverrides: null,
+      httpProxyUrl: "http://proxy.acme.internal:3128",
+    });
+    expect((await svc.get(clusterId, companyId))?.httpProxyUrl).toBe("http://proxy.acme.internal:3128");
+
+    // Subsequent upsert without httpProxyUrl must NOT clear it.
+    await svc.upsert({
+      clusterConnectionId: clusterId, companyId,
+      quota: null, limitRange: null,
+      additionalAllowFqdns: ["api.example.com"], imageOverrides: null,
+    });
+    expect((await svc.get(clusterId, companyId))?.httpProxyUrl).toBe("http://proxy.acme.internal:3128");
+
+    // Explicit null clears it.
+    await svc.upsert({
+      clusterConnectionId: clusterId, companyId,
+      quota: null, limitRange: null,
+      additionalAllowFqdns: [], imageOverrides: null,
+      httpProxyUrl: null,
+    });
+    expect((await svc.get(clusterId, companyId))?.httpProxyUrl).toBeNull();
+  });
 });
