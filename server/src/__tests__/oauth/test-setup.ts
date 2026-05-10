@@ -143,36 +143,70 @@ export function createTestSecretService(db: Db, registry: ProviderRegistry) {
 
 /**
  * Wraps a Drizzle handle so the OAuth refresh-worker's advisory-lock pings
- * never reach Postgres: `pg_try_advisory_lock` always reports success and
- * `pg_advisory_unlock` is a no-op. This is necessary in tests because
- * postgres-js maintains a multi-connection pool and the worker's session-
- * scoped lock + unlock can land on different connections, leaking a held
- * lock across scenarios. Stripping the lock dance also exercises a worker
- * `lockResult.rows?.[0]?.result` shape that matches the production
- * `node-postgres` Result-of-rows expectation. The combined shim is
+ * never reach Postgres: any `pg_try_advisory_lock` /
+ * `pg_try_advisory_xact_lock` / `pg_advisory_unlock` query is short-circuited
+ * to a synthetic success result. The shim is permissive on purpose: the
+ * worker's lock implementation has migrated from session-scoped
+ * (`pg_try_advisory_lock` + explicit unlock) to transaction-scoped
+ * (`pg_try_advisory_xact_lock` inside a `db.transaction(...)`); we keep the
+ * `pg_try_advisory_lock` and `pg_advisory_unlock` matchers so older worker
+ * variants and any future mid-migration paths stay covered. The shim is
  * documented as a follow-up in the Phase-7 report; production code is
  * deliberately left untouched.
  */
 export function withSyntheticAdvisoryLock<
   T extends { execute: (...args: any[]) => any },
 >(db: T): T {
+  function shouldShimSql(sqlText: string): boolean {
+    // `includes("pg_try_advisory_lock")` matches `pg_try_advisory_xact_lock`
+    // too because of the shared prefix, but we list each form explicitly so
+    // future readers can grep for the intent.
+    return (
+      sqlText.includes("pg_try_advisory_xact_lock") ||
+      sqlText.includes("pg_try_advisory_lock") ||
+      sqlText.includes("pg_advisory_unlock")
+    );
+  }
+  function syntheticOk() {
+    return Object.assign([{ result: true }], {
+      rows: [{ result: true }],
+    });
+  }
+  function wrapExecute(originalExecute: (...args: any[]) => any) {
+    return async (query: any, ...rest: any[]) => {
+      const sqlText = serializeSqlForMatch(query);
+      if (shouldShimSql(sqlText)) return syntheticOk();
+      return await originalExecute(query, ...rest);
+    };
+  }
+  function wrapTx<TX extends { execute?: (...args: any[]) => any }>(tx: TX): TX {
+    if (typeof tx?.execute !== "function") return tx;
+    const originalExecute = tx.execute.bind(tx);
+    return new Proxy(tx, {
+      get(target, prop, receiver) {
+        if (prop === "execute") return wrapExecute(originalExecute);
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+  }
+
   const originalExecute = db.execute.bind(db);
+  const dbWithTx = db as T & {
+    transaction?: (cb: (tx: unknown) => unknown) => unknown;
+  };
+  const originalTransaction = dbWithTx.transaction?.bind(dbWithTx);
   return new Proxy(db, {
     get(target, prop, receiver) {
-      if (prop === "execute") {
-        return async (query: any, ...rest: any[]) => {
-          const sqlText = serializeSqlForMatch(query);
-          if (sqlText.includes("pg_try_advisory_lock")) {
-            return Object.assign([{ result: true }], {
-              rows: [{ result: true }],
-            });
-          }
-          if (sqlText.includes("pg_advisory_unlock")) {
-            return Object.assign([{ result: true }], {
-              rows: [{ result: true }],
-            });
-          }
-          return await originalExecute(query, ...rest);
+      if (prop === "execute") return wrapExecute(originalExecute);
+      if (prop === "transaction" && originalTransaction) {
+        // The worker now takes the advisory lock inside a tx via `tx.execute`.
+        // Wrap the inner tx so its `execute` answers the same synthetic
+        // result for advisory-lock probes.
+        return (cb: (tx: unknown) => unknown, ...rest: unknown[]) => {
+          return originalTransaction(
+            (tx: unknown) => cb(wrapTx(tx as { execute?: any })),
+            ...(rest as []),
+          );
         };
       }
       return Reflect.get(target, prop, receiver);

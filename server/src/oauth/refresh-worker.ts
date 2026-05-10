@@ -5,8 +5,14 @@ import { oauthLogger } from "./logger.js";
 import type { ProviderRegistry } from "./registry.js";
 
 // Postgres advisory lock key. Picked to be a stable, distinct constant that
-// fits in signed int64 (`pg_try_advisory_lock(bigint)`). Any process that
-// acquires this key acts as the worker leader for the tick.
+// fits in signed int64 (`pg_try_advisory_xact_lock(bigint)`). Any process that
+// acquires this key inside its transaction acts as the worker leader for the
+// tick. We use the *transaction-scoped* variant so Postgres releases the lock
+// automatically at COMMIT/ROLLBACK — session-scoped advisory locks are tied
+// to the connection that took them, and postgres-js (the Drizzle driver in
+// this repo, see packages/db/src/client.ts) maintains a multi-connection
+// pool, so a session-scoped lock + unlock can land on different pool
+// connections and leak the held lock across ticks.
 const ADVISORY_LOCK_KEY = 0x074a17b4_c0bbac1en;
 const BATCH_LIMIT = 100;
 const TICK_INTERVAL_MS = 60_000;
@@ -23,20 +29,36 @@ export interface RefreshWorkerDeps {
   refreshFn?: typeof refreshConnection;
 }
 
+/**
+ * Run a single refresh tick.
+ *
+ * The whole tick runs inside one Postgres transaction so the
+ * `pg_try_advisory_xact_lock` we acquire stays bound to the same backend
+ * connection until COMMIT/ROLLBACK auto-releases it. Do NOT replace this
+ * with `pg_try_advisory_lock`/`pg_advisory_unlock` — under the postgres-js
+ * pool those calls can land on different connections and leak the lock
+ * across subsequent ticks (the original bug this fix targets).
+ *
+ * `refreshConnection` itself opens a transaction; passing `tx` from the
+ * outer transaction makes Drizzle nest it as a savepoint, so a per-row
+ * failure rolls back only that row's work, not the whole tick.
+ */
 export async function runRefreshTick(deps: RefreshWorkerDeps): Promise<void> {
-  const lockResult = await deps.db.execute(
-    sql`SELECT pg_try_advisory_lock(${ADVISORY_LOCK_KEY}::bigint) as result`,
-  );
-  // postgres-js returns an iterable RowList directly; node-postgres wraps in {rows}.
-  // Read both shapes so the worker is portable across drizzle drivers.
-  const lockRows = Array.isArray(lockResult)
-    ? lockResult
-    : ((lockResult as { rows?: unknown[] }).rows ?? []);
-  const acquired = Boolean((lockRows[0] as { result?: unknown } | undefined)?.result);
-  if (!acquired) return;
+  await deps.db.transaction(async (tx: any) => {
+    const lockResult = await tx.execute(
+      sql`SELECT pg_try_advisory_xact_lock(${ADVISORY_LOCK_KEY}::bigint) as result`,
+    );
+    // postgres-js returns an iterable RowList directly; node-postgres wraps in {rows}.
+    // Read both shapes so the worker is portable across drizzle drivers.
+    const lockRows = Array.isArray(lockResult)
+      ? lockResult
+      : ((lockResult as { rows?: unknown[] }).rows ?? []);
+    const acquired = Boolean(
+      (lockRows[0] as { result?: unknown } | undefined)?.result,
+    );
+    if (!acquired) return;
 
-  try {
-    const candidates = await deps.db.query.oauthConnections.findMany({
+    const candidates = await tx.query.oauthConnections.findMany({
       where: (
         t: any,
         { and: A, eq: E, isNotNull: NN, lt: L, sql: S }: any,
@@ -65,7 +87,7 @@ export async function runRefreshTick(deps: RefreshWorkerDeps): Promise<void> {
       try {
         await refreshFn({
           connectionId: row.id,
-          db: deps.db,
+          db: tx,
           registry: deps.registry,
           secretService: deps.secretService,
         });
@@ -79,11 +101,8 @@ export async function runRefreshTick(deps: RefreshWorkerDeps): Promise<void> {
         );
       }
     }
-  } finally {
-    await deps.db.execute(
-      sql`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY}::bigint)`,
-    );
-  }
+    // No explicit unlock — pg_try_advisory_xact_lock releases at COMMIT/ROLLBACK.
+  });
 }
 
 export function startRefreshWorker(

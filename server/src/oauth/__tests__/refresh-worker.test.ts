@@ -14,21 +14,29 @@ describe("runRefreshTick", () => {
     refreshFn?: ReturnType<typeof vi.fn>;
   }) {
     const acquired = opts.locked !== false;
+    // The worker now runs the tick inside a single `db.transaction(cb)` and
+    // takes a transaction-scoped advisory lock (`pg_try_advisory_xact_lock`).
+    // We mock the transaction wrapper so it just invokes the callback with a
+    // `tx` proxy that implements `execute` (lock probe) and the relational
+    // `query.oauthConnections.findMany` accessor the worker uses.
     const execute = vi
       .fn()
-      // first call: pg_try_advisory_lock
-      .mockResolvedValueOnce({ rows: [{ result: acquired }] })
-      // second call: pg_advisory_unlock
-      .mockResolvedValue({ rows: [{ result: true }] });
+      .mockResolvedValue({ rows: [{ result: acquired }] });
     const findMany = vi.fn().mockResolvedValue(opts.candidates);
     const refreshFn =
       opts.refreshFn ??
       vi.fn().mockResolvedValue({ outcome: "success", accessToken: "x" });
-    const db = {
+    const tx = {
       execute,
       query: { oauthConnections: { findMany } },
+    };
+    const transaction = vi.fn(async (cb: (tx: unknown) => Promise<void>) => {
+      return await cb(tx);
+    });
+    const db = {
+      transaction,
     } as unknown as Parameters<typeof runRefreshTick>[0]["db"];
-    return { db, refreshFn, execute, findMany };
+    return { db, refreshFn, execute, findMany, transaction };
   }
 
   it("filters out rows still in backoff and refreshes the rest", async () => {
@@ -82,16 +90,23 @@ describe("runRefreshTick", () => {
     expect(refreshFn.mock.calls[0]?.[0].connectionId).toBe("ok");
   });
 
-  it("releases the advisory lock after a successful tick", async () => {
-    const { db, refreshFn, execute } = buildDeps({ candidates: [] });
+  it("acquires the transaction-scoped advisory lock exactly once per tick", async () => {
+    const { db, refreshFn, execute, transaction } = buildDeps({
+      candidates: [],
+    });
     await runRefreshTick({
       db,
       refreshFn,
       registry: {} as never,
       secretService: {} as never,
     });
-    // execute called twice: try_advisory_lock + advisory_unlock
-    expect(execute).toHaveBeenCalledTimes(2);
+    // Lock is acquired with a single `pg_try_advisory_xact_lock` probe — no
+    // explicit unlock query, because Postgres releases xact-scoped advisory
+    // locks at COMMIT/ROLLBACK. The whole tick runs inside one transaction.
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledTimes(1);
+    const firstCallArgs = execute.mock.calls[0];
+    expect(firstCallArgs).toBeDefined();
   });
 
   it("logs and continues if a refreshFn throws", async () => {
