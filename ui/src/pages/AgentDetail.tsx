@@ -115,9 +115,9 @@ async function loadDuplicateInstructionsBundle(
   const files: Record<string, string> = {};
 
   for (const summary of bundle.files) {
-    const file = await agentsApi.instructionsFile(agentId, summary.path, companyId);
     const path = duplicateInstructionFilePath(bundle, summary);
     if (!path) continue;
+    const file = await agentsApi.instructionsFile(agentId, summary.path, companyId);
     files[path] = file.content;
   }
 
