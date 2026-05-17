@@ -65,6 +65,13 @@ const mockIssueRecoveryActionService = vi.hoisted(() => ({
   getActiveForIssue: vi.fn(async () => null),
   resolveActiveForIssue: vi.fn(async () => null),
 }));
+const mockHeartbeatService = vi.hoisted(() => ({
+  wakeup: vi.fn(async () => undefined),
+  reportRunActivity: vi.fn(async () => undefined),
+  getRun: vi.fn(async () => null),
+  getActiveRunForAgent: vi.fn(async () => null),
+  cancelRun: vi.fn(async () => null),
+}));
 
 function registerRouteMocks() {
   vi.doMock("@paperclipai/shared/telemetry", () => ({
@@ -111,13 +118,7 @@ function registerRouteMocks() {
       saveIssueVote: vi.fn(async () => ({ vote: null, consentEnabledNow: false, sharingEnabled: false })),
     }),
     goalService: () => ({}),
-    heartbeatService: () => ({
-      wakeup: vi.fn(async () => undefined),
-      reportRunActivity: vi.fn(async () => undefined),
-      getRun: vi.fn(async () => null),
-      getActiveRunForAgent: vi.fn(async () => null),
-      cancelRun: vi.fn(async () => null),
-    }),
+    heartbeatService: () => mockHeartbeatService,
     instanceSettingsService: () => ({
       get: vi.fn(async () => ({
         id: "instance-settings-1",
@@ -299,6 +300,16 @@ describe("agent issue mutation checkout ownership", () => {
       createdAt: new Date("2026-05-13T17:55:00.000Z"),
       updatedAt: new Date("2026-05-13T18:05:00.000Z"),
     });
+    mockHeartbeatService.wakeup.mockReset();
+    mockHeartbeatService.wakeup.mockResolvedValue(undefined);
+    mockHeartbeatService.reportRunActivity.mockReset();
+    mockHeartbeatService.reportRunActivity.mockResolvedValue(undefined);
+    mockHeartbeatService.getRun.mockReset();
+    mockHeartbeatService.getRun.mockResolvedValue(null);
+    mockHeartbeatService.getActiveRunForAgent.mockReset();
+    mockHeartbeatService.getActiveRunForAgent.mockResolvedValue(null);
+    mockHeartbeatService.cancelRun.mockReset();
+    mockHeartbeatService.cancelRun.mockResolvedValue(null);
     mockIssueService.remove.mockReset();
     mockIssueService.removeAttachment.mockReset();
     mockIssueService.update.mockReset();
@@ -605,5 +616,40 @@ describe("agent issue mutation checkout ownership", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(mockIssueService.update).toHaveBeenCalled();
     expect(mockIssueRecoveryActionService.resolveActiveForIssue).toHaveBeenCalled();
+  });
+
+  it("wakes the assigned agent when recovery resolution restores a source issue to todo", async () => {
+    mockIssueService.getById.mockResolvedValue(
+      makeIssue({ status: "blocked", assigneeAgentId: ownerAgentId }),
+    );
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...makeIssue({ status: "blocked", assigneeAgentId: ownerAgentId }),
+      ...patch,
+    }));
+    mockIssueRecoveryActionService.getActiveForIssue.mockResolvedValue({
+      id: recoveryActionId,
+      ownerAgentId,
+    });
+
+    const res = await request(await createApp(ownerActor()))
+      .post(`/api/issues/${issueId}/recovery-actions/resolve`)
+      .send({
+        actionId: recoveryActionId,
+        outcome: "restored",
+        sourceIssueStatus: "todo",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+      ownerAgentId,
+      expect.objectContaining({
+        reason: "issue_recovery_action_restored",
+        payload: expect.objectContaining({
+          issueId,
+          recoveryActionId,
+          mutation: "recovery_action_resolution",
+        }),
+      }),
+    );
   });
 });

@@ -2224,6 +2224,36 @@ export function issueRoutes(
       },
     });
 
+    if (
+      sourceIssueStatus === "todo" &&
+      existing.status !== result.issue.status &&
+      result.issue.assigneeAgentId
+    ) {
+      void heartbeat.wakeup(result.issue.assigneeAgentId, {
+        source: "automation",
+        triggerDetail: "system",
+        reason: "issue_recovery_action_restored",
+        payload: {
+          issueId: result.issue.id,
+          recoveryActionId: result.recoveryAction.id,
+          mutation: "recovery_action_resolution",
+        },
+        requestedByActorType: actor.actorType,
+        requestedByActorId: actor.actorId,
+        contextSnapshot: {
+          issueId: result.issue.id,
+          taskId: result.issue.id,
+          wakeReason: "issue_recovery_action_restored",
+          source: "issue.recovery_action_resolution",
+          recoveryActionId: result.recoveryAction.id,
+        },
+      }).catch((err) =>
+        logger.warn(
+          { err, issueId: result.issue.id, agentId: result.issue.assigneeAgentId },
+          "failed to wake agent after recovery action restored issue",
+        ));
+    }
+
     res.json({
       issue: {
         ...result.issue,
