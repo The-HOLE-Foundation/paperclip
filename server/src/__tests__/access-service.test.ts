@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   companies,
@@ -14,6 +14,7 @@ import {
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 import { accessService } from "../services/access.js";
+import { grantsForHumanRole } from "../services/company-member-roles.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -220,5 +221,108 @@ describeEmbeddedPostgres("access service", () => {
     await expect(
       access.setUserCompanyAccess(operator.principalId, [], { actorUserId: owner.principalId }),
     ).rejects.toThrow("Instance admins cannot be removed from company access");
+  });
+
+  it("allows owner and admin role-default grants to manage environments", async () => {
+    const { company, owner } = await createCompanyWithOwner(db);
+    const access = accessService(db);
+    const roles = ["admin", "operator", "viewer"] as const;
+    const members = await db
+      .insert(companyMemberships)
+      .values(
+        roles.map((role) => ({
+          companyId: company.id,
+          principalType: "user" as const,
+          principalId: `${role}-${randomUUID()}`,
+          status: "active" as const,
+          membershipRole: role,
+        })),
+      )
+      .returning();
+
+    await access.setPrincipalGrants(
+      company.id,
+      "user",
+      owner.principalId,
+      grantsForHumanRole("owner"),
+      owner.principalId,
+    );
+    for (const member of members) {
+      await access.setPrincipalGrants(
+        company.id,
+        "user",
+        member.principalId,
+        grantsForHumanRole(member.membershipRole as "admin" | "operator" | "viewer"),
+        owner.principalId,
+      );
+    }
+
+    const admin = members.find((member) => member.membershipRole === "admin")!;
+    const operator = members.find((member) => member.membershipRole === "operator")!;
+    const viewer = members.find((member) => member.membershipRole === "viewer")!;
+
+    await expect(access.canUser(company.id, owner.principalId, "environments:manage")).resolves.toBe(true);
+    await expect(access.canUser(company.id, admin.principalId, "environments:manage")).resolves.toBe(true);
+    await expect(access.canUser(company.id, operator.principalId, "environments:manage")).resolves.toBe(false);
+    await expect(access.canUser(company.id, viewer.principalId, "environments:manage")).resolves.toBe(false);
+  });
+
+  it("preserves explicit scoped environment grants when backfilling owner and admin defaults", async () => {
+    const { company, owner } = await createCompanyWithOwner(db);
+    const scopedGrant = { environmentId: "env-1" };
+    await db.insert(principalPermissionGrants).values({
+      companyId: company.id,
+      principalType: "user",
+      principalId: owner.principalId,
+      permissionKey: "environments:manage",
+      scope: scopedGrant,
+      grantedByUserId: "custom-grant-author",
+    });
+
+    await db.execute(sql.raw(`
+      INSERT INTO "principal_permission_grants" (
+        "company_id",
+        "principal_type",
+        "principal_id",
+        "permission_key",
+        "scope",
+        "granted_by_user_id",
+        "created_at",
+        "updated_at"
+      )
+      SELECT
+        "company_id",
+        'user',
+        "principal_id",
+        'environments:manage',
+        NULL,
+        NULL,
+        now(),
+        now()
+      FROM "company_memberships"
+      WHERE "principal_type" = 'user'
+        AND "status" = 'active'
+        AND "membership_role" IN ('owner', 'admin')
+      ON CONFLICT (
+        "company_id",
+        "principal_type",
+        "principal_id",
+        "permission_key"
+      ) DO NOTHING
+    `));
+
+    const grants = await db
+      .select()
+      .from(principalPermissionGrants)
+      .where(
+        and(
+          eq(principalPermissionGrants.companyId, company.id),
+          eq(principalPermissionGrants.principalId, owner.principalId),
+          eq(principalPermissionGrants.permissionKey, "environments:manage"),
+        ),
+      );
+    expect(grants).toHaveLength(1);
+    expect(grants[0]?.scope).toEqual(scopedGrant);
+    expect(grants[0]?.grantedByUserId).toBe("custom-grant-author");
   });
 });
