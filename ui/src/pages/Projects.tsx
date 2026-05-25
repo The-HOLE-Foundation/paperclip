@@ -7,6 +7,7 @@ import { useDialogActions } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { EntityRow } from "../components/EntityRow";
+import { StatusBadge } from "../components/StatusBadge";
 import { MembershipAction } from "../components/MembershipAction";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -31,7 +32,8 @@ const PROJECT_SORT_OPTIONS: Array<{ field: ProjectSortField; label: string }> = 
 ];
 
 function compareProjectNames(left: Project, right: Project) {
-  return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+  const nameDiff = left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+  return nameDiff !== 0 ? nameDiff : left.id.localeCompare(right.id);
 }
 
 function projectTime(value: Date | string | null | undefined): number | null {
@@ -216,6 +218,7 @@ export function Projects() {
                                 {formatDate(project.targetDate)}
                               </span>
                             )}
+                            <StatusBadge status={project.status} />
                             <MembershipAction
                               state={state}
                               pending={pending}
