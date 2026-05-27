@@ -1,10 +1,7 @@
-import { createRequire } from "node:module";
+import { existsSync, readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import {
-  catalogManifest,
-  catalogSkills,
-} from "@paperclipai/skills-catalog";
+import { fileURLToPath } from "node:url";
 import type {
   CatalogSkill,
   CatalogSkillFileDetail,
@@ -12,7 +9,28 @@ import type {
 } from "@paperclipai/shared";
 import { conflict, notFound } from "../errors.js";
 
-const require = createRequire(import.meta.url);
+interface CatalogManifestFile {
+  packageName: string;
+  packageVersion: string;
+  skills: CatalogSkill[];
+}
+
+const serviceDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(serviceDir, "../../..");
+const catalogPackageRoot = path.join(repoRoot, "packages/skills-catalog");
+const catalogManifestPath = path.join(catalogPackageRoot, "generated/catalog.json");
+
+function loadCatalogManifest(): CatalogManifestFile {
+  if (!existsSync(catalogManifestPath)) {
+    throw new Error(
+      `Skills catalog manifest not found at ${catalogManifestPath}. Run pnpm --filter @paperclipai/skills-catalog build:manifest.`,
+    );
+  }
+  return JSON.parse(readFileSync(catalogManifestPath, "utf8")) as CatalogManifestFile;
+}
+
+const catalogManifest = loadCatalogManifest();
+const catalogSkills = catalogManifest.skills;
 
 function normalizePortablePath(input: string) {
   const parts: string[] = [];
@@ -49,10 +67,7 @@ function inferLanguageFromPath(filePath: string) {
 }
 
 function resolveCatalogPackageRoot() {
-  const catalogJsonPath = require.resolve("@paperclipai/skills-catalog/catalog.json");
-  const generatedDir = path.dirname(catalogJsonPath);
-  const parent = path.dirname(generatedDir);
-  return path.basename(parent) === "dist" ? path.dirname(parent) : parent;
+  return catalogPackageRoot;
 }
 
 function searchText(skill: CatalogSkill) {
