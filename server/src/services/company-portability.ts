@@ -70,7 +70,11 @@ import { issueService } from "./issues.js";
 import { projectService } from "./projects.js";
 import { routineService } from "./routines.js";
 import { secretService } from "./secrets.js";
-import { PORTABLE_CATALOG_PROVENANCE_STRING_KEYS, readCatalogStringList } from "./catalog-provenance.js";
+import {
+  PORTABLE_CATALOG_PROVENANCE_STRING_KEYS,
+  readCatalogStringList,
+  readPortableCatalogProvenance,
+} from "./catalog-provenance.js";
 
 /** Build OrgNode tree from manifest agent list (slug + reportsToSlug). */
 function buildOrgTreeFromManifest(agents: CompanyPortabilityManifest["agents"]): OrgNode[] {
@@ -249,32 +253,6 @@ function buildPortableCatalogProvenance(skill: CompanySkill) {
   if (auditCodes) provenance.auditCodes = auditCodes;
 
   return Object.keys(provenance).length > 1 ? provenance : null;
-}
-
-function readPortableCatalogProvenance(metadata: Record<string, unknown> | null) {
-  const paperclip = isPlainRecord(metadata?.paperclip) ? metadata.paperclip as Record<string, unknown> : null;
-  const catalog = isPlainRecord(paperclip?.catalog) ? paperclip.catalog as Record<string, unknown> : null;
-  if (!catalog) return null;
-
-  const sourceRef = asString(catalog.sourceRef) ?? asString(catalog.originHash);
-  const normalized: Record<string, unknown> = {
-    sourceKind: "catalog",
-  };
-  const skillKey = asString(catalog.skillKey);
-  if (skillKey) normalized.skillKey = skillKey;
-  for (const key of PORTABLE_CATALOG_PROVENANCE_STRING_KEYS) {
-    if (key === "sourceRef") continue;
-    const value = asString(catalog[key]);
-    if (value) normalized[key] = value;
-  }
-  if (sourceRef && !normalized.originHash) normalized.originHash = sourceRef;
-  const auditCodes = readCatalogStringList(catalog.auditCodes);
-  if (auditCodes) normalized.auditCodes = auditCodes;
-
-  return {
-    sourceRef,
-    metadata: normalized,
-  };
 }
 
 function deriveLocalExportNamespace(skill: CompanySkill, slug: string) {

@@ -16,7 +16,12 @@ function sha256(value: string | Buffer) {
 }
 
 function contentHash(files: CatalogSkillFile[]) {
-  return `sha256:${sha256(Buffer.from(JSON.stringify(files.map((file) => ({
+  const sortedFiles = [...files].sort((left, right) => {
+    if (left.path === "SKILL.md") return -1;
+    if (right.path === "SKILL.md") return 1;
+    return left.path.localeCompare(right.path);
+  });
+  return `sha256:${sha256(Buffer.from(JSON.stringify(sortedFiles.map((file) => ({
     path: file.path,
     sha256: file.sha256,
   })))))}`;
@@ -203,6 +208,16 @@ describeEmbeddedPostgres("companySkillService.installFromCatalog", () => {
     });
 
     await expect(fs.readFile(path.join(result.skill.sourceLocator!, "assets/logo.png"))).resolves.toEqual(sampleAssetBytes);
+    await expect(svc.installUpdate(companyId, result.skill.id)).resolves.toMatchObject({
+      metadata: expect.objectContaining({
+        updateHoldReason: null,
+      }),
+    });
+    await expect(svc.resetSkill(companyId, result.skill.id)).resolves.toMatchObject({
+      metadata: expect.objectContaining({
+        updateHoldReason: null,
+      }),
+    });
   });
 
   it("restores portable catalog provenance when importing packaged skills", async () => {
@@ -356,6 +371,14 @@ describeEmbeddedPostgres("companySkillService.installFromCatalog", () => {
       message: expect.stringContaining("hard-stop audit findings"),
       details: expect.objectContaining({
         updateHoldReason: "audit_hard_stop",
+        audit: expect.objectContaining({
+          findings: expect.arrayContaining([
+            expect.objectContaining({
+              code: "missing_skill_md",
+              path: "SKILL.md",
+            }),
+          ]),
+        }),
       }),
     });
   });

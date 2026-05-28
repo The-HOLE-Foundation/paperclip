@@ -46,7 +46,11 @@ import {
   readCatalogSkillFile,
   resolveCatalogSkillReference,
 } from "./skills-catalog.js";
-import { PORTABLE_CATALOG_PROVENANCE_STRING_KEYS, readCatalogStringList } from "./catalog-provenance.js";
+import {
+  PORTABLE_CATALOG_PROVENANCE_STRING_KEYS,
+  readCatalogStringList,
+  readPortableCatalogProvenance,
+} from "./catalog-provenance.js";
 
 type CompanySkillRow = typeof companySkills.$inferSelect;
 type CompanySkillListDbRow = Pick<
@@ -786,37 +790,6 @@ function deriveImportedSkillSlug(frontmatter: Record<string, unknown>, fallback:
     ?? normalizeSkillSlug(asString(frontmatter.name))
     ?? normalizeAgentUrlKey(fallback)
     ?? "skill";
-}
-
-function readPortableCatalogProvenance(
-  metadata: Record<string, unknown> | null,
-  canonicalKey: string | null,
-) {
-  const paperclip = isPlainRecord(metadata?.paperclip) ? metadata.paperclip as Record<string, unknown> : null;
-  const catalog = isPlainRecord(paperclip?.catalog) ? paperclip.catalog as Record<string, unknown> : null;
-  if (!catalog) return null;
-
-  const sourceRef = asString(catalog.sourceRef) ?? asString(catalog.originHash);
-  const normalized: Record<string, unknown> = {
-    ...(canonicalKey ? { skillKey: canonicalKey } : {}),
-    sourceKind: "catalog",
-  };
-  const catalogSkillKey = asString(catalog.skillKey);
-  if (!canonicalKey && catalogSkillKey) normalized.skillKey = catalogSkillKey;
-
-  for (const key of PORTABLE_CATALOG_PROVENANCE_STRING_KEYS) {
-    if (key === "sourceRef") continue;
-    const value = asString(catalog[key]);
-    if (value) normalized[key] = value;
-  }
-  if (sourceRef && !normalized.originHash) normalized.originHash = sourceRef;
-  const auditCodes = readCatalogStringList(catalog.auditCodes);
-  if (auditCodes) normalized.auditCodes = auditCodes;
-
-  return {
-    sourceRef,
-    metadata: normalized,
-  };
 }
 
 function deriveImportedSkillSource(
@@ -1680,6 +1653,7 @@ async function auditInstalledSkillBytes(skill: CompanySkill): Promise<CompanySki
   const expectedSet = new Set(expectedPaths);
   for (const expected of expectedPaths) {
     if (!actualSet.has(expected)) {
+      if (expected === "SKILL.md") continue;
       pushFinding(findings, "inventory_mismatch", "error", "Expected inventory file is missing on disk.", expected);
     }
   }
@@ -2471,12 +2445,6 @@ export function companySkillService(db: Db) {
           audit: candidateAudit,
         });
       }
-      if (candidateAudit.verdict === "warning" && !options.force) {
-        throw unprocessable("Catalog update has soft audit warnings; rerun with --force to accept them.", {
-          updateHoldReason: "operator_hold",
-          audit: candidateAudit,
-        });
-      }
       const materializedDir = path.resolve(
         resolveManagedSkillsRoot(companyId),
         "__catalog__",
@@ -2522,13 +2490,6 @@ export function companySkillService(db: Db) {
         await persistAuditMetadata(updated, postAudit);
         throw unprocessable("Catalog update produced hard-stop audit findings.", {
           updateHoldReason: "audit_hard_stop",
-          audit: postAudit,
-        });
-      }
-      if (postAudit.verdict === "warning" && !options.force) {
-        await persistAuditMetadata(updated, postAudit);
-        throw unprocessable("Catalog update has soft audit warnings; rerun with --force to accept them.", {
-          updateHoldReason: "operator_hold",
           audit: postAudit,
         });
       }
@@ -2593,12 +2554,6 @@ export function companySkillService(db: Db) {
     if (originAudit.installedHash !== originHash || originAudit.verdict === "fail") {
       throw unprocessable("Pinned catalog origin failed audit and cannot be restored.", {
         updateHoldReason: originAudit.verdict === "fail" ? "audit_hard_stop" : "origin_unavailable",
-        audit: originAudit,
-      });
-    }
-    if (originAudit.verdict === "warning" && !options.force) {
-      throw unprocessable("Pinned catalog origin has soft audit warnings; rerun with --force to accept them.", {
-        updateHoldReason: "operator_hold",
         audit: originAudit,
       });
     }
