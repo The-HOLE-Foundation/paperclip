@@ -400,7 +400,7 @@ function createIssueDependencyReadiness(issueId: string): IssueDependencyReadine
  * Workspaces with no recorded operations are considered finalized (nothing has
  * touched them since they were realized).
  */
-async function listUnfinalizedExecutionWorkspaceIds(
+export async function listUnfinalizedExecutionWorkspaceIds(
   dbOrTx: Pick<Db, "select">,
   companyId: string,
   executionWorkspaceIds: string[],

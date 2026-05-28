@@ -36,7 +36,7 @@ import {
   suggestTasksResultSchema,
 } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
-import { issueService } from "./issues.js";
+import { issueService, listUnfinalizedExecutionWorkspaceIds } from "./issues.js";
 
 type InteractionActor = {
   agentId?: string | null;
@@ -457,6 +457,32 @@ export function issueThreadInteractionService(db: Db) {
       .then((rows) => rows[0] ?? null);
   }
 
+  async function assertIssueWorkspaceFinalizedForAccept(args: {
+    db: Pick<Db, "select">;
+    issue: { id: string; companyId: string };
+  }) {
+    const executionWorkspaceId = await args.db
+      .select({ executionWorkspaceId: issues.executionWorkspaceId })
+      .from(issues)
+      .where(eq(issues.id, args.issue.id))
+      .then((rows: Array<{ executionWorkspaceId: string | null }>) => rows[0]?.executionWorkspaceId ?? null);
+
+    if (!executionWorkspaceId) return;
+
+    const unfinalized = await listUnfinalizedExecutionWorkspaceIds(
+      args.db,
+      args.issue.companyId,
+      [executionWorkspaceId],
+    );
+    if (!unfinalized.has(executionWorkspaceId)) return;
+
+    throw conflict(
+      "Cannot accept interaction: the issue's most recent run has not completed workspace_finalize. "
+        + "Retry once the local worktree has finished syncing.",
+      { executionWorkspaceId },
+    );
+  }
+
   async function getPendingInteractionForResolution(args: {
     issue: { id: string; companyId: string };
     interactionId: string;
@@ -745,6 +771,7 @@ export function issueThreadInteractionService(db: Db) {
     ): Promise<ResolvedInteractionResult> => {
       const data = acceptIssueThreadInteractionSchema.parse(input);
       const current = await getPendingInteractionForResolution({ issue, interactionId });
+      await assertIssueWorkspaceFinalizedForAccept({ db, issue });
       switch (current.kind) {
         case "suggest_tasks":
           return issueThreadInteractionService(db).acceptSuggestedTasks(issue, interactionId, data, actor);
