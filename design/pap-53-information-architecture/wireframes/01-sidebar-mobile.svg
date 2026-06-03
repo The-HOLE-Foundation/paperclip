@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="375" height="812" viewBox="0 0 375 812"
+     font-family="-apple-system, system-ui, sans-serif" fill="#fff" stroke="#000" stroke-width="1.5">
+  <rect x="0" y="0" width="375" height="812" />
+
+  <!-- Drawer header -->
+  <text x="16" y="38" font-size="20" font-weight="700" stroke="none" fill="#000">Paperclip App</text>
+  <text x="343" y="38" font-size="20" stroke="none" fill="#000">×</text>
+  <line x1="0" y1="56" x2="375" y2="56" stroke="#666" />
+
+  <!-- Top cluster -->
+  <g>
+    <rect x="8" y="72" width="359" height="40" fill="#fff" stroke="none" />
+    <rect x="16" y="82" width="20" height="15" rx="3" fill="none" stroke="#000" />
+    <polygon points="21,97 21,104 28,97" fill="#000" stroke="none" />
+    <text x="48" y="97" font-size="14" stroke="none" fill="#000">Conference room</text>
+  </g>
+  <rect x="16" y="124" width="18" height="18" rx="3" fill="#e6e6e6" stroke="#666" />
+  <text x="48" y="138" font-size="14" stroke="none" fill="#000">New task</text>
+  <rect x="16" y="164" width="18" height="18" rx="3" fill="#e6e6e6" stroke="#666" />
+  <text x="48" y="178" font-size="14" stroke="none" fill="#666">Dashboard</text>
+  <rect x="16" y="204" width="18" height="18" rx="3" fill="#e6e6e6" stroke="#666" />
+  <text x="48" y="218" font-size="14" stroke="none" fill="#666">Inbox</text>
+
+  <!-- WORK -->
+  <text x="16" y="258" font-size="12" font-weight="600" letter-spacing="1" stroke="none" fill="#666">WORK</text>
+  <rect x="16" y="272" width="18" height="18" rx="3" fill="#e6e6e6" stroke="#666" />
+  <text x="48" y="286" font-size="14" stroke="none" fill="#666">Issues</text>
+  <rect x="16" y="312" width="18" height="15" rx="2" fill="#fff" stroke="#000" />
+  <path d="M16 315 l6 0 l2 -3 l4 0" fill="none" stroke="#000" />
+  <text x="48" y="326" font-size="14" stroke="none" fill="#000">Projects</text>
+  <rect x="16" y="352" width="18" height="18" rx="3" fill="#e6e6e6" stroke="#666" />
+  <text x="48" y="366" font-size="14" stroke="none" fill="#000">Artifacts</text>
+  <rect x="16" y="392" width="18" height="18" rx="3" fill="#e6e6e6" stroke="#666" />
+  <text x="48" y="406" font-size="14" stroke="none" fill="#666">Routines</text>
+  <rect x="16" y="432" width="18" height="18" rx="3" fill="#e6e6e6" stroke="#666" />
+  <text x="48" y="446" font-size="14" stroke="none" fill="#666">Goals</text>
+
+  <!-- PROJECTS -->
+  <text x="16" y="486" font-size="12" font-weight="600" letter-spacing="1" stroke="none" fill="#666">PROJECTS</text>
+  <g>
+    <rect x="16" y="500" width="22" height="18" rx="5" fill="#e6e6e6" stroke="#666" />
+    <path d="M21 506 l5 0 l1.5 -2 l5 0 l0 10 l-11.5 0 z" fill="#fff" stroke="#666" />
+    <text x="48" y="514" font-size="14" stroke="none" fill="#666">Onboarding v3</text>
+  </g>
+  <g>
+    <rect x="16" y="540" width="22" height="18" rx="5" fill="#e6e6e6" stroke="#666" />
+    <path d="M21 546 l5 0 l1.5 -2 l5 0 l0 10 l-11.5 0 z" fill="#fff" stroke="#666" />
+    <text x="48" y="554" font-size="14" stroke="none" fill="#666">NUX hardening</text>
+  </g>
+
+  <!-- AGENTS -->
+  <text x="16" y="594" font-size="12" font-weight="600" letter-spacing="1" stroke="none" fill="#666">AGENTS</text>
+  <circle cx="25" cy="614" r="9" fill="#e6e6e6" stroke="#666" />
+  <text x="48" y="619" font-size="14" stroke="none" fill="#666">ClaudeCoder</text>
+  <circle cx="300" cy="614" r="3" fill="#000" stroke="none" />
+  <text x="312" y="618" font-size="12" stroke="none" fill="#666">2 live</text>
+  <circle cx="25" cy="650" r="9" fill="#e6e6e6" stroke="#666" />
+  <text x="48" y="655" font-size="14" stroke="none" fill="#666">QA-Bot</text>
+  <circle cx="300" cy="650" r="3" fill="#000" stroke="none" />
+  <text x="312" y="654" font-size="12" stroke="none" fill="#666">1 live</text>
+
+  <!-- bottom tab bar (persistent) -->
+  <line x1="0" y1="748" x2="375" y2="748" stroke="#666" />
+  <text x="40" y="784" font-size="12" text-anchor="middle" stroke="none" fill="#666">Home</text>
+  <text x="120" y="784" font-size="12" text-anchor="middle" stroke="none" fill="#666">Issues</text>
+  <text x="200" y="784" font-size="12" text-anchor="middle" stroke="none" fill="#000">＋</text>
+  <text x="270" y="784" font-size="12" text-anchor="middle" stroke="none" fill="#666">Agents</text>
+  <text x="340" y="784" font-size="12" text-anchor="middle" stroke="none" fill="#666">Inbox</text>
+
+  <!-- annotations -->
+  <g data-region="annotations">
+    <rect x="8" y="72" width="359" height="40" fill="none" stroke="#d33" stroke-dasharray="6 3" />
+    <g transform="translate(355,92)"><circle r="10" fill="#fff" stroke="#d33" stroke-dasharray="4 2" /><text y="4" font-size="12" font-weight="700" text-anchor="middle" stroke="none" fill="#d33">1</text></g>
+    <rect x="8" y="500" width="359" height="58" fill="none" stroke="#d33" stroke-dasharray="6 3" />
+    <g transform="translate(355,528)"><circle r="10" fill="#fff" stroke="#d33" stroke-dasharray="4 2" /><text y="4" font-size="12" font-weight="700" text-anchor="middle" stroke="none" fill="#d33">5</text></g>
+  </g>
+</svg>
