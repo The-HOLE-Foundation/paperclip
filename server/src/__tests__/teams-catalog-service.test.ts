@@ -134,6 +134,71 @@ describe("teamsCatalogService", () => {
     );
   });
 
+  it("injects safe claude_local adapter defaults for every bundled agent when no overrides are supplied", async () => {
+    const svc = teamsCatalogService({} as any);
+
+    await svc.installCatalogTeam("company-1", "core-exec-team");
+
+    const [importInput] = mockCompanyPortabilityService.importBundle.mock.calls.at(-1)!;
+    expect(importInput.adapterOverrides).toEqual({
+      ceo: { adapterType: "claude_local" },
+      cto: { adapterType: "claude_local" },
+      qa: { adapterType: "claude_local" },
+    });
+  });
+
+  it("supplies safe adapter defaults for product-design and product-engineering installs", async () => {
+    const svc = teamsCatalogService({} as any);
+
+    await svc.installCatalogTeam("company-1", "product-design");
+    const [designInput] = mockCompanyPortabilityService.importBundle.mock.calls.at(-1)!;
+    expect(designInput.adapterOverrides).toEqual({
+      "ux-designer": { adapterType: "claude_local" },
+    });
+
+    await svc.installCatalogTeam("company-1", "product-engineering");
+    const [engineeringInput] = mockCompanyPortabilityService.importBundle.mock.calls.at(-1)!;
+    expect(engineeringInput.adapterOverrides).toEqual({
+      cto: { adapterType: "claude_local" },
+      qa: { adapterType: "claude_local" },
+      "senior-coder": { adapterType: "claude_local" },
+    });
+  });
+
+  it("never sends a forbidden process adapter type from the default catalog path", async () => {
+    const svc = teamsCatalogService({} as any);
+
+    await svc.installCatalogTeam("company-1", "core-exec-team");
+
+    const [importInput] = mockCompanyPortabilityService.importBundle.mock.calls.at(-1)!;
+    const adapterTypes = Object.values(importInput.adapterOverrides as Record<string, { adapterType: string }>)
+      .map((override) => override.adapterType);
+    expect(adapterTypes).not.toContain("process");
+    expect(adapterTypes).not.toContain("http");
+  });
+
+  it("preserves an explicit caller adapter override for the affected slug", async () => {
+    const svc = teamsCatalogService({} as any);
+
+    const callerOverrides = {
+      cto: { adapterType: "opencode_local", adapterConfig: { model: "anthropic/claude-opus-4" } },
+    };
+    await svc.installCatalogTeam("company-1", "core-exec-team", {
+      adapterOverrides: callerOverrides,
+    });
+
+    const [importInput] = mockCompanyPortabilityService.importBundle.mock.calls.at(-1)!;
+    expect(importInput.adapterOverrides).toEqual({
+      ceo: { adapterType: "claude_local" },
+      cto: { adapterType: "opencode_local", adapterConfig: { model: "anthropic/claude-opus-4" } },
+      qa: { adapterType: "claude_local" },
+    });
+    // Caller-supplied object must not be mutated in place.
+    expect(callerOverrides).toEqual({
+      cto: { adapterType: "opencode_local", adapterConfig: { model: "anthropic/claude-opus-4" } },
+    });
+  });
+
   it("passes install secretValues through to company portability import", async () => {
     const svc = teamsCatalogService({} as any);
 

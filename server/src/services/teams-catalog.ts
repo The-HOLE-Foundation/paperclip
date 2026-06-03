@@ -12,6 +12,7 @@ import type {
   CatalogTeamSkillRequirementType,
 } from "@paperclipai/teams-catalog";
 import type {
+  CompanyPortabilityAdapterOverride,
   CompanyPortabilityAgentSelection,
   CompanyPortabilityCollisionStrategy,
   CompanyPortabilityFileEntry,
@@ -649,6 +650,33 @@ async function readCatalogTeamSourceFiles(team: CatalogTeam): Promise<Record<str
   return files;
 }
 
+/**
+ * Default safe adapter for catalog agents imported through the agent-safe path.
+ */
+const DEFAULT_SAFE_CATALOG_ADAPTER_TYPE = "claude_local";
+
+/**
+ * Bundled catalog agents declare no adapter in their `AGENTS.md` frontmatter, so
+ * `parsePortableAgentFrontmatter` defaults them to `process` — which the
+ * `agent_safe` importer rejects (see `IMPORT_FORBIDDEN_ADAPTER_TYPES` in
+ * `company-portability`). Inject a safe per-agent adapter default for every
+ * catalog agent the caller did not explicitly override so default-trust teams
+ * install without manual adapter flags. Explicit caller overrides win and are
+ * left untouched (both `adapterType` and `adapterConfig`). This is scoped to the
+ * catalog install path; the generic portability fallback is unchanged.
+ */
+function withSafeCatalogAdapterDefaults(
+  agentSlugs: string[],
+  callerOverrides: CompanyPortabilityImport["adapterOverrides"],
+): Record<string, CompanyPortabilityAdapterOverride> {
+  const merged: Record<string, CompanyPortabilityAdapterOverride> = { ...(callerOverrides ?? {}) };
+  for (const slug of agentSlugs) {
+    if (merged[slug]) continue;
+    merged[slug] = { adapterType: DEFAULT_SAFE_CATALOG_ADAPTER_TYPE };
+  }
+  return merged;
+}
+
 function buildPortabilityInput(
   companyId: string,
   source: CompanyPortabilitySource,
@@ -827,7 +855,10 @@ export function teamsCatalogService(db: Db) {
     ];
     const importInput: CompanyPortabilityImport = {
       ...buildPortabilityInput(companyId, prepared.source, options),
-      adapterOverrides: options.adapterOverrides,
+      adapterOverrides: withSafeCatalogAdapterDefaults(
+        prepared.team.agentSlugs,
+        options.adapterOverrides,
+      ),
       secretValues: options.secretValues,
     };
     const result = await portability.importBundle(
