@@ -35,4 +35,15 @@ describe("company routes", () => {
     expect(applyCompanyPrefix("/search?q=hello%20world", "PAP")).toBe("/PAP/search?q=hello%20world");
     expect(toCompanyRelativePath("/PAP/search?q=foo")).toBe("/search?q=foo");
   });
+
+  it("treats /conference-room and /artifacts as board routes that need a company prefix", () => {
+    expect(isBoardPathWithoutPrefix("/conference-room")).toBe(true);
+    expect(isBoardPathWithoutPrefix("/artifacts")).toBe(true);
+    expect(extractCompanyPrefixFromPath("/conference-room")).toBeNull();
+    expect(extractCompanyPrefixFromPath("/artifacts")).toBeNull();
+    expect(applyCompanyPrefix("/conference-room", "PAP")).toBe("/PAP/conference-room");
+    expect(applyCompanyPrefix("/artifacts", "PAP")).toBe("/PAP/artifacts");
+    expect(toCompanyRelativePath("/PAP/conference-room")).toBe("/conference-room");
+    expect(toCompanyRelativePath("/PAP/artifacts")).toBe("/artifacts");
+  });
 });
