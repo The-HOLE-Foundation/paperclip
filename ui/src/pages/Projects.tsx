@@ -12,7 +12,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { MembershipAction } from "../components/MembershipAction";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
-import { formatDate, projectUrl } from "../lib/utils";
+import { formatDate, formatNumber, formatProjectBudget, projectUrl } from "../lib/utils";
 import {
   resourceMembershipState,
   useResourceMembershipMutation,
@@ -215,8 +215,19 @@ export function Projects() {
                         className={state === "left" ? "group text-foreground/55" : "group"}
                         trailing={
                           <div className="flex items-center gap-3">
+                            <span
+                              className="hidden text-xs text-muted-foreground tabular-nums sm:inline"
+                              title={`${formatNumber(project.taskCount ?? 0)} task${(project.taskCount ?? 0) === 1 ? "" : "s"}`}
+                            >
+                              {formatNumber(project.taskCount ?? 0)} task{(project.taskCount ?? 0) === 1 ? "" : "s"}
+                            </span>
+                            {project.budget && (
+                              <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
+                                {formatProjectBudget(project.budget)}
+                              </span>
+                            )}
                             {project.targetDate && (
-                              <span className="text-xs text-muted-foreground">
+                              <span className="hidden text-xs text-muted-foreground md:inline">
                                 {formatDate(project.targetDate)}
                               </span>
                             )}

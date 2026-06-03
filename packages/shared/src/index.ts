@@ -349,6 +349,7 @@ export type {
   AdapterEnvironmentTestResult,
   AssetImage,
   Project,
+  ProjectBudgetSummary,
   ProjectCodebase,
   ProjectCodebaseOrigin,
   ProjectGoalRef,
