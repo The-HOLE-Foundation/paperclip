@@ -1170,6 +1170,13 @@ export function authorizationService(db: Db) {
           explanation: "Allowed because the issue has no agent assignee.",
         });
       }
+      // Company-scoped tasks:assign grant covers mutation of project-less issues.
+      // This handles the case where a CEO-like actor with scope:null needs to move
+      // orphan issues into a project or reassign them.
+      if (resource?.projectId == null) {
+        const grantDecision = await decideWithTaskAssignmentGrants("agent", actorAgentId);
+        if (grantDecision.allowed) return grantDecision;
+      }
     }
     if (
       input.action === "agent_config:update" &&
