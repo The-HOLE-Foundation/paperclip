@@ -912,4 +912,103 @@ describeEmbeddedPostgres("authorization service", () => {
       grant: { permissionKey: "tasks:assign" },
     });
   });
+
+  it("allows company-scoped tasks:assign holder to mutate a project-less issue owned by another agent", async () => {
+    const company = await createCompany(db, "ProjectlessMutate");
+    const ceoAgent = await createAgent(db, company.id);
+    const assigneeAgent = await createAgent(db, company.id);
+    const issue = await createIssue(db, company.id, { projectId: null, assigneeAgentId: assigneeAgent.id });
+    await grantAgentPermission(db, company.id, ceoAgent.id, "tasks:assign");
+
+    const decision = await authorizationService(db).decide({
+      actor: { type: "agent", agentId: ceoAgent.id, companyId: company.id, source: "agent_key" },
+      action: "issue:mutate",
+      resource: {
+        type: "issue",
+        companyId: company.id,
+        issueId: issue.id,
+        projectId: null,
+        parentIssueId: null,
+        assigneeAgentId: assigneeAgent.id,
+        assigneeUserId: null,
+        status: issue.status,
+      },
+      scope: {
+        issueId: issue.id,
+        projectId: null,
+        parentIssueId: null,
+        assigneeAgentId: assigneeAgent.id,
+        assigneeUserId: null,
+      },
+    });
+
+    expect(decision).toMatchObject({ allowed: true });
+  });
+
+  it("denies an agent without tasks:assign from mutating a project-less issue they do not own", async () => {
+    const company = await createCompany(db, "ProjectlessMutateDeny");
+    const actorAgent = await createAgent(db, company.id);
+    const assigneeAgent = await createAgent(db, company.id);
+    const issue = await createIssue(db, company.id, { projectId: null, assigneeAgentId: assigneeAgent.id });
+
+    const decision = await authorizationService(db).decide({
+      actor: { type: "agent", agentId: actorAgent.id, companyId: company.id, source: "agent_key" },
+      action: "issue:mutate",
+      resource: {
+        type: "issue",
+        companyId: company.id,
+        issueId: issue.id,
+        projectId: null,
+        parentIssueId: null,
+        assigneeAgentId: assigneeAgent.id,
+        assigneeUserId: null,
+        status: issue.status,
+      },
+      scope: {
+        issueId: issue.id,
+        projectId: null,
+        parentIssueId: null,
+        assigneeAgentId: assigneeAgent.id,
+        assigneeUserId: null,
+      },
+    });
+
+    expect(decision).toMatchObject({ allowed: false });
+  });
+
+  it("does not extend company-scoped tasks:assign to project-scoped issues the actor does not own", async () => {
+    const company = await createCompany(db, "ProjectScopedNoElevation");
+    const ceoAgent = await createAgent(db, company.id);
+    const assigneeAgent = await createAgent(db, company.id);
+    const project = await createProject(db, company.id, "TargetProject");
+    const issue = await createIssue(db, company.id, {
+      projectId: project.id,
+      assigneeAgentId: assigneeAgent.id,
+    });
+    await grantAgentPermission(db, company.id, ceoAgent.id, "tasks:assign");
+
+    const decision = await authorizationService(db).decide({
+      actor: { type: "agent", agentId: ceoAgent.id, companyId: company.id, source: "agent_key" },
+      action: "issue:mutate",
+      resource: {
+        type: "issue",
+        companyId: company.id,
+        issueId: issue.id,
+        projectId: project.id,
+        parentIssueId: null,
+        assigneeAgentId: assigneeAgent.id,
+        assigneeUserId: null,
+        status: issue.status,
+      },
+      scope: {
+        issueId: issue.id,
+        projectId: project.id,
+        parentIssueId: null,
+        assigneeAgentId: assigneeAgent.id,
+        assigneeUserId: null,
+      },
+    });
+
+    expect(decision).toMatchObject({ allowed: false });
+  });
 });
