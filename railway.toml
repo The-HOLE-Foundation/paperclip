@@ -1,0 +1,25 @@
+# Railway deployment configuration for Paperclip
+# See: https://docs.railway.app/guides/config-as-code
+#
+# Preferred modern approach: see .railway/railway.ts (Infrastructure as Code)
+# for full service + database definitions.
+#
+# This toml still provides simple build hints that work even without the IaC file.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+# The Dockerfile already sets:
+#   HOST=0.0.0.0
+#   PORT=3100 (Railway overrides via $PORT)
+#   SERVE_UI=true
+#   PAPERCLIP_HOME=/paperclip
+#
+# See docs/deploy/railway.md for the complete setup (Postgres, variables, volume, templates).
+
+# Optional: health check configuration (Railway can also use the HTTP healthcheck path)
+# healthcheckPath = "/health"
+# healthcheckTimeout = 10000

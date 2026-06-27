@@ -323,12 +323,21 @@ This starts the API server at `http://localhost:3100`. An embedded PostgreSQL da
 
 > **Requirements:** Node.js 20+, pnpm 9.15+
 
+### Deploy to the cloud (Railway)
+
+Paperclip has first-class support for Railway with a managed Postgres database, matching the full `docker-compose.yml` setup.
+
+- See the [Railway deployment guide](docs/deploy/railway.md)
+- Includes Infrastructure-as-Code (`.railway/railway.ts`) and instructions to publish a one-click template.
+
+After you have a running instance, publish it as a template so others (or future you) can deploy with one click.
+
 <br/>
 
 ## FAQ
 
 **What does a typical setup look like?**
-Locally, a single Node.js process manages an embedded Postgres and local file storage. For production, point it at your own Postgres and deploy however you like. Configure projects, agents, and goals — the agents take care of the rest.
+Locally, a single Node.js process manages an embedded Postgres and local file storage. For production, point it at your own Postgres (or use Railway's managed Postgres) and deploy however you like — see the [Railway deployment guide](docs/deploy/railway.md) for a fast path. Configure projects, agents, and goals — the agents take care of the rest.
 
 If you're a solo entrepreneur you can use Tailscale to access Paperclip on the go. Then later you can deploy to e.g. Vercel when you need it.
 
