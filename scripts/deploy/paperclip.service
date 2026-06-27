@@ -1,0 +1,36 @@
+[Unit]
+Description=Paperclip (bleeding-edge git source via pnpm paperclipai run)
+Documentation=https://github.com/paperclipai/paperclip
+Wants=network-online.target
+After=network-online.target netbird.service
+
+[Service]
+Type=simple
+User=paperclip
+Group=paperclip
+WorkingDirectory=/home/paperclip/paperclip
+
+# systemd starts with an EMPTY environment and does NOT source ~/.bashrc
+# (which bails early for non-interactive shells anyway). So we reconstruct
+# exactly what an interactive `cd ~/paperclip && pnpm paperclipai run` sees:
+#   - node resolves to the fnm "default" alias (v26.3.1) — matches the shell
+#   - pnpm (corepack, shebang `#!/usr/bin/env node`) is found via nvm's bin
+#   - HOME must be set so the CLI finds ~/.paperclip/instances/default
+Environment=HOME=/home/paperclip
+Environment=USER=paperclip
+Environment=LOGNAME=paperclip
+Environment=PATH=/home/paperclip/.local/share/fnm/aliases/default/bin:/home/paperclip/.linuxbrew/bin:/home/paperclip/.linuxbrew/sbin:/home/paperclip/.nvm/versions/node/v24.17.0/bin:/home/paperclip/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:/home/paperclip/bin
+
+ExecStart=/home/paperclip/.nvm/versions/node/v24.17.0/bin/pnpm paperclipai run
+
+Restart=always
+RestartSec=5
+# Embedded tooling + migrations can take a while on a cold start.
+TimeoutStartSec=300
+TimeoutStopSec=45
+# Reap agent subprocesses (claude/codex/git) along with the main process.
+KillMode=mixed
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
