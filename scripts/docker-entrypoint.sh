@@ -39,4 +39,9 @@ if [ "$changed" = "1" ]; then
     chown -R node:node /paperclip
 fi
 
+# Always ensure the persistent volume directories exist and have correct ownership.
+# Railway (and some platforms) mount volumes as root; the app (running as node) needs to write logs/db under /paperclip.
+mkdir -p /paperclip/instances/default/logs /paperclip/instances/default/db
+chown -R node:node /paperclip || true
+
 exec gosu node "$@"
