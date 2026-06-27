@@ -83,7 +83,8 @@ ENV NODE_ENV=production \
   OPENCODE_ALLOW_ALL_MODELS=true \
   GEMINI_SANDBOX=false
 
-VOLUME ["/paperclip"]
+# VOLUME ["/paperclip"]   # Removed for Railway (and some platforms) compatibility.
+# Use platform Volumes instead (we attach one at /paperclip via Railway).
 EXPOSE 3100
 
 ENTRYPOINT ["docker-entrypoint.sh"]
