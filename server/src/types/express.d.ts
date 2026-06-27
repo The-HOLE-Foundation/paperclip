@@ -1,9 +1,9 @@
 export {};
 
-// Augment Express Request with the authenticated 'actor' context.
-// Using module augmentation on express-serve-static-core is the most reliable
-// way to extend the Request type when files import { Request } from "express".
-declare module "express-serve-static-core" {
+// Robust augmentation for Express Request.actor
+// Targeting 'express' directly works reliably with `import { Request } from "express"`
+// and NodeNext module resolution used in this project.
+declare module "express" {
   interface Request {
     actor: {
       type: "board" | "agent" | "none";
@@ -26,7 +26,7 @@ declare module "express-serve-static-core" {
   }
 }
 
-// Also augment the global Express namespace for any code that uses the Express. namespace style.
+// Fallback global namespace augmentation (for any code using Express namespace style)
 declare global {
   namespace Express {
     interface Request {
