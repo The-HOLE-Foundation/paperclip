@@ -1,6 +1,9 @@
 import { subscribeAllCompanyLiveEvents } from "./services/live-events.js";
 import { chatCompletionDeliveryService } from "./services/chat-completion-delivery.js";
 /// <reference path="./types/express.d.ts" />
+// Force-load the augmentation for Request.actor so it is visible to tsc
+// even in isolated module resolution / pnpm workspace builds.
+import type {} from "./types/express";
 // Kicks off the OTel bootstrap as early as possible (no-op unless
 // OTEL_EXPORTER_OTLP_ENDPOINT is set). startServer() awaits
 // instrumentationReady before opening DB connections or constructing the

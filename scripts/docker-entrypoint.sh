@@ -45,4 +45,9 @@ if [ -d "$home_dir" ] && [ -n "$(find "$home_dir" \( ! -user node -o ! -group no
     chown -R node:node "$home_dir"
 fi
 
+# Always ensure the persistent volume directories exist and have correct ownership.
+# Railway (and some platforms) mount volumes as root; the app (running as node) needs to write logs/db under /paperclip.
+mkdir -p /paperclip/instances/default/logs /paperclip/instances/default/db
+chown -R node:node /paperclip || true
+
 exec gosu node "$@"

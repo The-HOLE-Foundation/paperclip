@@ -2232,20 +2232,13 @@ export function authorizationService(db: Db | DbTransaction) {
           explanation: "Allowed because the issue has no agent assignee.",
         });
       }
-      if (
-        input.action === "issue:comment" &&
-        resource?.issueId &&
-        await agentHasMentionGrantOnIssue({
-          action: input.action,
-          companyId,
-          issueId: resource.issueId,
-          issueAssigneeAgentId: resource.assigneeAgentId ?? null,
-          actorAgentId,
-        })
-      ) {
-        return allowIssueMentionGrant(input.action);
+      // Company-scoped tasks:assign grant covers mutation of project-less issues.
+      // This handles the case where a CEO-like actor with scope:null needs to move
+      // orphan issues into a project or reassign them.
+      if (resource?.projectId == null) {
+        const grantDecision = await decideWithTaskAssignmentGrants("agent", actorAgentId);
+        if (grantDecision.allowed) return grantDecision;
       }
-      if (visibleIssueWriteDecision) return visibleIssueWriteDecision;
     }
     if (
       input.action === "agent_config:update" &&

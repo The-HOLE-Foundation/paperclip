@@ -419,19 +419,21 @@ This starts the UI and API at `http://localhost:3100`. An embedded PostgreSQL da
 
 Source development also builds the native Paperclip Runner when enabled (the self-hosted default). Install a Rust toolchain, or set `PAPERCLIP_RUNNER_BINARY` to a compatible prebuilt runner.
 
+### Deploy to the cloud (Railway)
+
+Paperclip has first-class support for Railway with a managed Postgres database, matching the full `docker-compose.yml` setup.
+
+- See the [Railway deployment guide](docs/deploy/railway.md)
+- Includes Infrastructure-as-Code (`.railway/railway.ts`) and instructions to publish a one-click template.
+
+After you have a running instance, publish it as a template so others (or future you) can deploy with one click.
+
 <br/>
 
 ## FAQ
 
-**Q: Is this project maintained or just slop?**
-
-**A:** Paperclip is maintained by the [Paperclip team](https://paperclip.ing). We've merged [over 2,700 pull requests](https://github.com/paperclipai/paperclip/pulls?q=is%3Apr+is%3Amerged).
-
-<br/>
-
-**Q: What does a typical setup look like?**
-
-**A:** Locally, a single Node.js process manages an embedded Postgres and local file storage. For production, point it at your own Postgres and deploy however you like. Configure projects, agents, and goals — the agents take care of the rest.
+**What does a typical setup look like?**
+Locally, a single Node.js process manages an embedded Postgres and local file storage. For production, point it at your own Postgres (or use Railway's managed Postgres) and deploy however you like — see the [Railway deployment guide](docs/deploy/railway.md) for a fast path. Configure projects, agents, and goals — the agents take care of the rest.
 
 For remote access, use authenticated mode with a private-network bind such as Tailscale, or deploy the persistent server with Docker. See [deployment modes](https://docs.paperclip.ing/reference/deploy/deployment-modes/) and the [Docker guide](https://docs.paperclip.ing/reference/deploy/docker/).
 
