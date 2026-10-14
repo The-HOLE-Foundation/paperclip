@@ -1,0 +1,78 @@
+# The HOLE Foundation: fresh ("virgin") Paperclip on the tailnet.
+#
+# - Joins the tailnet as an ephemeral node (Tailscale sidecar; Paperclip shares its network).
+# - Own embedded Postgres and local-disk storage under the paperclip-data volume.
+# - Optional Infisical bootstrap of instance env (see README.md).
+#
+#   cd docker/hole && cp .env.example .env   # fill in
+#   docker compose -f compose.virgin.yml up -d --build
+#
+# Reach it at http://<PAPERCLIP_TS_HOSTNAME>.<TAILNET_DOMAIN>:3100 from any tailnet device.
+services:
+  tailscale:
+    image: tailscale/tailscale:${TAILSCALE_IMAGE_TAG:-stable}
+    hostname: ${PAPERCLIP_TS_HOSTNAME:-paperclip}
+    environment:
+      # Ephemeral + tagged: use an OAuth client secret (ephemeral by default) or an ephemeral auth key.
+      TS_AUTHKEY: "${TS_AUTHKEY:?TS_AUTHKEY must be set (ephemeral auth key or OAuth client secret)}"
+      TS_EXTRA_ARGS: "${TS_EXTRA_ARGS:---advertise-tags=tag:paperclip}"
+      TS_HOSTNAME: ${PAPERCLIP_TS_HOSTNAME:-paperclip}
+      # No TS_STATE_DIR: state lives in memory, so the node is gone shortly after the container stops.
+      TS_USERSPACE: "false"
+      TS_ACCEPT_DNS: "true"
+      TS_ENABLE_HEALTH_CHECK: "true"
+      TS_LOCAL_ADDR_PORT: "127.0.0.1:9002"
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9002/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  paperclip:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: ${PAPERCLIP_IMAGE:-paperclip-hole:local}
+    network_mode: "service:tailscale"
+    depends_on:
+      tailscale:
+        condition: service_healthy
+    pids_limit: 2048
+    # Overriding entrypoint resets the image CMD, so command repeats it.
+    entrypoint: ["/usr/bin/tini", "--", "sh", "/app/scripts/hole/infisical-bootstrap.sh", "docker-entrypoint.sh"]
+    command: ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
+    environment:
+      HOST: "0.0.0.0"
+      PAPERCLIP_HOME: "/paperclip"
+      PAPERCLIP_DEPLOYMENT_MODE: "authenticated"
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
+      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://${PAPERCLIP_TS_HOSTNAME:-paperclip}.${TAILNET_DOMAIN:-wolverine-wyrm.ts.net}:3100}"
+      PAPERCLIP_ALLOWED_HOSTNAMES: "${PAPERCLIP_ALLOWED_HOSTNAMES:-${PAPERCLIP_TS_HOSTNAME:-paperclip}}"
+
+      # ── Infisical bootstrap (optional here; skipped when unset) ──
+      INFISICAL_API_URL:
+      INFISICAL_CLIENT_ID:
+      INFISICAL_CLIENT_SECRET:
+      INFISICAL_PROJECT_ID:
+      INFISICAL_ENVIRONMENT:
+      INFISICAL_BOOTSTRAP_PATH:
+      PAPERCLIP_REQUIRED_ENV: "BETTER_AUTH_SECRET"
+
+      # ── Passed through only when set; otherwise Infisical /bootstrap supplies them ──
+      BETTER_AUTH_SECRET:
+      PAPERCLIP_SECRETS_MASTER_KEY:
+      PAPERCLIP_TOOL_ACTION_SIGNING_SECRET:
+      ANTHROPIC_API_KEY:
+      OPENAI_API_KEY:
+    volumes:
+      # Embedded database, agent workspaces, uploads, secrets key file.
+      - paperclip-data:/paperclip
+    restart: unless-stopped
+
+volumes:
+  paperclip-data:
