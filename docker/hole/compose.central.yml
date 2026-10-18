@@ -1,0 +1,114 @@
+# The HOLE Foundation: Paperclip on the tailnet, backed by the central Postgres
+# and Cloudflare R2. Redeploying this stack anywhere comes back with the same data.
+#
+# - Joins the tailnet as an ephemeral node (Tailscale sidecar; Paperclip shares its network).
+# - DATABASE_URL points at the central Postgres (portainer.wolverine-wyrm.ts.net:5433).
+# - Attachments and artifacts go to R2 through Paperclip's S3 storage provider.
+# - Startup is refused unless every PAPERCLIP_REQUIRED_ENV value is present, so a
+#   missing secret can never fall back to a fresh embedded database.
+#
+# Run ONE live instance per database: two servers on the same database both run
+# the heartbeat scheduler.
+#
+#   cd docker/hole && cp .env.example .env   # fill in
+#   docker compose -f compose.central.yml up -d --build
+#
+# Reach it at http://<PAPERCLIP_TS_HOSTNAME>.<TAILNET_DOMAIN>:3100 from any tailnet device.
+#
+name: paperclip-central
+services:
+  tailscale:
+    image: tailscale/tailscale:${TAILSCALE_IMAGE_TAG:-stable}
+    hostname: ${PAPERCLIP_TS_HOSTNAME:-paperclip}
+    environment:
+      # Ephemeral + tagged: use an OAuth client secret (ephemeral by default) or an ephemeral auth key.
+      TS_AUTHKEY: "${TS_AUTHKEY:?TS_AUTHKEY must be set (ephemeral auth key or OAuth client secret)}"
+      TS_EXTRA_ARGS: "${TS_EXTRA_ARGS:---advertise-tags=tag:paperclip}"
+      TS_HOSTNAME: ${PAPERCLIP_TS_HOSTNAME:-paperclip}
+      # No TS_STATE_DIR: state lives in memory, so the node is gone shortly after the container stops.
+      TS_USERSPACE: "false"
+      TS_ACCEPT_DNS: "true"
+      TS_ENABLE_HEALTH_CHECK: "true"
+      TS_LOCAL_ADDR_PORT: "127.0.0.1:9002"
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9002/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  paperclip:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: ${PAPERCLIP_IMAGE:-paperclip-hole:local}
+    network_mode: "service:tailscale"
+    depends_on:
+      tailscale:
+        condition: service_healthy
+    pids_limit: 2048
+    # Overriding entrypoint resets the image CMD, so command repeats it.
+    entrypoint: ["/usr/bin/tini", "--", "sh", "/app/scripts/hole/infisical-bootstrap.sh", "docker-entrypoint.sh"]
+    command: ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
+    environment:
+      HOST: "0.0.0.0"
+      PAPERCLIP_HOME: "/paperclip"
+      PAPERCLIP_DEPLOYMENT_MODE: "authenticated"
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
+      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://${PAPERCLIP_TS_HOSTNAME:-paperclip}.${TAILNET_DOMAIN:-wolverine-wyrm.ts.net}:3100}"
+      PAPERCLIP_ALLOWED_HOSTNAMES: "${PAPERCLIP_ALLOWED_HOSTNAMES:-${PAPERCLIP_TS_HOSTNAME:-paperclip}}"
+
+      # Schema migrations run on boot against the central database.
+      PAPERCLIP_MIGRATION_AUTO_APPLY: "true"
+
+      # ── Storage: Cloudflare R2 through the S3 provider ──
+      PAPERCLIP_STORAGE_PROVIDER: "s3"
+      PAPERCLIP_STORAGE_S3_BUCKET: "${R2_BUCKET:-paperclip}"
+      PAPERCLIP_STORAGE_S3_REGION: "auto"
+      PAPERCLIP_STORAGE_S3_PREFIX: "${PAPERCLIP_STORAGE_S3_PREFIX:-central}"
+      PAPERCLIP_STORAGE_S3_FORCE_PATH_STYLE: "true"
+      # Per Cloudflare R2 docs for AWS SDK v3 >= 3.729: only send checksums R2 requires.
+      AWS_REQUEST_CHECKSUM_CALCULATION: "WHEN_REQUIRED"
+      AWS_RESPONSE_CHECKSUM_VALIDATION: "WHEN_REQUIRED"
+      # Run logs are written to the local volume and mirrored to R2 when each run finishes.
+      RUN_LOG_S3_BUCKET: "${R2_BUCKET:-paperclip}"
+      RUN_LOG_S3_REGION: "auto"
+      RUN_LOG_S3_PREFIX: "${PAPERCLIP_STORAGE_S3_PREFIX:-central}/run-logs"
+
+      # ── Infisical bootstrap ──
+      INFISICAL_API_URL:
+      INFISICAL_CLIENT_ID:
+      INFISICAL_CLIENT_SECRET:
+      INFISICAL_PROJECT_ID:
+      INFISICAL_ENVIRONMENT:
+      INFISICAL_BOOTSTRAP_PATH:
+      PAPERCLIP_REQUIRED_ENV: >-
+        DATABASE_URL BETTER_AUTH_SECRET PAPERCLIP_SECRETS_MASTER_KEY
+        PAPERCLIP_STORAGE_S3_ENDPOINT RUN_LOG_S3_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+
+      # ── Passed through only when set; otherwise Infisical /bootstrap supplies them ──
+      # e.g. postgres://paperclip:<pw>@portainer.wolverine-wyrm.ts.net:5433/paperclip
+      DATABASE_URL:
+      BETTER_AUTH_SECRET:
+      # Must be stable across redeploys or secrets stored in the central DB become unreadable.
+      PAPERCLIP_SECRETS_MASTER_KEY:
+      # https://<account-id>.r2.cloudflarestorage.com
+      PAPERCLIP_STORAGE_S3_ENDPOINT:
+      # Same endpoint; in Infisical set it to the reference ${PAPERCLIP_STORAGE_S3_ENDPOINT}.
+      RUN_LOG_S3_ENDPOINT:
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
+      PAPERCLIP_TOOL_ACTION_SIGNING_SECRET:
+      ANTHROPIC_API_KEY:
+      OPENAI_API_KEY:
+    volumes:
+      # Agent workspaces and instance config only; state lives in Postgres and R2.
+      - paperclip-data:/paperclip
+    restart: unless-stopped
+
+volumes:
+  paperclip-data:
