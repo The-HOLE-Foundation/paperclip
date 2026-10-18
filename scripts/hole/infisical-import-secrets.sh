@@ -3,7 +3,9 @@
 # Missing keys are created; existing keys are rotated to the Infisical value.
 #
 # Run inside the paperclip container (it already has the Infisical env):
-#   docker compose exec paperclip sh /app/scripts/hole/infisical-import-secrets.sh
+#   read -rs PAPERCLIP_BOARD_API_KEY && export PAPERCLIP_BOARD_API_KEY
+#   docker compose exec -e PAPERCLIP_BOARD_API_KEY -e PAPERCLIP_COMPANY_ID=... \
+#     paperclip sh /app/scripts/hole/infisical-import-secrets.sh
 #
 # Env (in addition to infisical-lib.sh):
 #   PAPERCLIP_BOARD_API_KEY   board API key (Settings -> API keys)
@@ -19,9 +21,8 @@ infisical_configured || { echo "INFISICAL_CLIENT_ID, INFISICAL_CLIENT_SECRET and
 : "${PAPERCLIP_COMPANY_ID:?PAPERCLIP_COMPANY_ID is required}"
 api="${PAPERCLIP_API_URL:-http://127.0.0.1:3100}"
 api="${api%/}/api"
-auth="Authorization: Bearer $PAPERCLIP_BOARD_API_KEY"
 
-existing="$(curl -fsS -H "$auth" "$api/companies/$PAPERCLIP_COMPANY_ID/secrets")"
+existing="$(curl_bearer "$PAPERCLIP_BOARD_API_KEY" -fsS "$api/companies/$PAPERCLIP_COMPANY_ID/secrets")"
 source_json="$(infisical_fetch_secrets "${INFISICAL_IMPORT_PATH:-/paperclip}")"
 
 # One compact JSON object per line: {key, value}. Values never touch argv or disk.
@@ -33,12 +34,12 @@ printf '%s' "$source_json" | jq -c '.secrets[] | {key: .secretKey, value: .secre
     fi
     id="$(printf '%s' "$existing" | jq -r --arg k "$key" 'map(select(.key == $k and .scope == "company")) | first | .id // empty')"
     if [ -n "$id" ]; then
-        printf '%s' "$row" | jq -c '{value}' | curl -fsS -o /dev/null -X POST -H "$auth" -H 'Content-Type: application/json' \
+        printf '%s' "$row" | jq -c '{value}' | curl_bearer "$PAPERCLIP_BOARD_API_KEY" -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
             --data-binary @- "$api/secrets/$id/rotate"
         echo "rotate $key" >&2
     else
         printf '%s' "$row" | jq -c '{name: .key, key: .key, value: .value, description: "Imported from Infisical"}' \
-            | curl -fsS -o /dev/null -X POST -H "$auth" -H 'Content-Type: application/json' \
+            | curl_bearer "$PAPERCLIP_BOARD_API_KEY" -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
             --data-binary @- "$api/companies/$PAPERCLIP_COMPANY_ID/secrets"
         echo "create $key" >&2
     fi

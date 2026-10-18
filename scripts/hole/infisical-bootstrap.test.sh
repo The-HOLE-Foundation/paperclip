@@ -5,7 +5,8 @@ set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 port=18765
 tmp="$(mktemp -d)"
-trap 'kill "$mock" 2>/dev/null || true; rm -rf "$tmp"' EXIT
+mock=
+trap 'rc=$?; [ "$rc" -eq 0 ] || cat "$tmp"/err* >&2 2>/dev/null; [ -z "$mock" ] || kill "$mock" 2>/dev/null; rm -rf "$tmp"' EXIT
 
 node -e '
 const http = require("node:http");
@@ -32,7 +33,14 @@ http.createServer((req, res) => {
 }).listen('"$port"', "127.0.0.1");
 ' &
 mock=$!
-until curl -s -o /dev/null "http://127.0.0.1:$port/"; do sleep 0.2; done
+# Bounded wait; a mock that died (e.g. port taken) fails fast instead of hanging.
+i=0
+until curl -s -o /dev/null "http://127.0.0.1:$port/"; do
+  kill -0 "$mock" 2>/dev/null || { echo "mock server exited" >&2; exit 1; }
+  i=$((i + 1)); [ "$i" -lt 50 ] || { echo "mock server not ready" >&2; exit 1; }
+  sleep 0.2
+done
+kill -0 "$mock" 2>/dev/null || { echo "mock server exited" >&2; exit 1; }
 
 export INFISICAL_API_URL="http://127.0.0.1:$port" INFISICAL_CLIENT_ID=id INFISICAL_PROJECT_ID=p
 

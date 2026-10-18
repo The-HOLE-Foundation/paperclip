@@ -82,8 +82,9 @@ If a required value is missing, the central stack exits with `refusing to start;
 Create a board API key in the Paperclip UI, then:
 
 ```sh
+read -rs PAPERCLIP_BOARD_API_KEY && export PAPERCLIP_BOARD_API_KEY   # paste the key; not echoed or saved to history
 docker compose -f compose.central.yml exec \
-  -e PAPERCLIP_BOARD_API_KEY=... -e PAPERCLIP_COMPANY_ID=... \
+  -e PAPERCLIP_BOARD_API_KEY -e PAPERCLIP_COMPANY_ID=... \
   paperclip sh /app/scripts/hole/infisical-import-secrets.sh
 ```
 
@@ -93,4 +94,4 @@ Every secret in `/paperclip` (override with `INFISICAL_IMPORT_PATH`) is created 
 
 - `tailscale` never turns healthy: the auth key is wrong or expired, or the tag is not permitted. Check `docker compose logs tailscale`.
 - DB connection errors on `*.ts.net`: run `docker compose exec paperclip getent hosts portainer.wolverine-wyrm.ts.net`. If MagicDNS fails, put the tailnet IP in `DATABASE_URL`.
-- Bootstrap self-test: `sh scripts/hole/infisical-bootstrap.test.sh`.
+- Bootstrap self-test, run from the repository root: `sh scripts/hole/infisical-bootstrap.test.sh`.

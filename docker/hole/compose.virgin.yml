@@ -8,6 +8,7 @@
 #   docker compose -f compose.virgin.yml up -d --build
 #
 # Reach it at http://<PAPERCLIP_TS_HOSTNAME>.<TAILNET_DOMAIN>:3100 from any tailnet device.
+name: paperclip-virgin
 services:
   tailscale:
     image: tailscale/tailscale:${TAILSCALE_IMAGE_TAG:-stable}
